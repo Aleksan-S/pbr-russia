@@ -144,6 +144,7 @@ api.smartthings.com
 api.switch-bot.com
 api.yeelight.com
 apiauto.ru
+apiirus.hik-connectru.com
 apiok.ru
 appmetrica.yandex.com
 appmetrica.yandex.net
@@ -254,6 +255,8 @@ carrotquest-mail.io
 carrotquest.app
 carrotquest.io
 carrottrack.app
+cas.ezvizru.com
+casrus.ezvizru.com
 cbg.ru
 cbkiller.com
 cbr.ru
@@ -476,6 +479,7 @@ ewisdom.us.kg
 express.ms
 eziot.com
 ezviz.com
+ezvizru.com
 f6.dev
 f6.ru
 f6.security
@@ -582,6 +586,8 @@ hh.ru
 hhcdn.ru
 hik-cloud.com
 hik-connect.com
+hik-connectru.com
+hikcentralconnect.com
 home-api.eufylife.com
 homecredit.ru
 homegraph.googleapis.com
@@ -652,6 +658,8 @@ iotx-eu.meross.com
 iotx-us.meross.com
 irk.ru
 irkutsk.ru
+irus.hik-connectru.com
+isgp-team.hikcentralconnect.com
 it-katok.ru
 it-picnic.ru
 it-piknik.ru
@@ -882,6 +890,7 @@ mindbox.group
 mindbox.ru
 mindbox.site
 mindbox.so
+miot-pri-ksmos-epc.alb.xiaomi.com
 miot-spec.org
 mirabilis.com
 mirandaicq.com
@@ -1253,8 +1262,11 @@ rtrunews.com
 rttv.com
 rttv.ru
 rtxv.ru
+ru.api.io.mi.com
 ru.ccb.com
 ru.com
+ru.core.api.io.mi.com
+ru.mqtt.io.mi.com
 ru.net
 rugpt.io
 ruhub.tv
@@ -1561,6 +1573,7 @@ travel-tec.ru
 trbcdn.net
 tsaritsyn.ru
 tsk.ru
+ttsrus.ezvizru.com
 tula.ru
 turbopages.org
 tusco.ru

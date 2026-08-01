@@ -65,7 +65,7 @@ Add custom entries as bare domains, `domain:example.ru`, or `full:host.example.r
 
 The generator discovers `*.txt` files directly inside [`custom/`](custom) in filename order; parser changes are not needed when adding a file. Put general additions in [`custom/manual.txt`](custom/manual.txt), or create a focused file such as `custom/my-provider.txt`. Domains are normalized, validated, de-duplicated across every custom file and the legacy file, then merged with V2Fly and sorted.
 
-[`custom/smart-home.txt`](custom/smart-home.txt) contains only verified production service domains. It has no wildcard, URL, IP address, test, or placeholder entries. `smart_home_domains` reports its unique normalized entries. `manual_domains` reports unique entries from all other custom TXT files and `custom-domains.txt`; a domain present in two sources is still emitted only once.
+[`custom/smart-home.txt`](custom/smart-home.txt) contains only verified production service domains, including regional Hik-Connect, EZVIZ, and Xiaomi endpoints observed in dnsmasq queries on a live OpenWrt router. It has no wildcard, URL, IP address, test, or placeholder entries. `smart_home_domains` reports its unique normalized entries. `manual_domains` reports unique entries from all other custom TXT files and `custom-domains.txt`; a domain present in two sources is still emitted only once.
 
 ### Supported Smart Home services
 
@@ -95,6 +95,40 @@ The curated list covers these production cloud services:
 - Apple HomeKit cloud services
 
 The endpoint set is intentionally conservative. Public vendor documentation is used where available—for example [Aqara's regional API hosts](https://docs.aqara.com/docs/aqara-developer/aiot-api/getting-started-with-the-aiot-api), [Tuya's production data centers](https://developer.tuya.com/en/docs/iot/Tuya_Homebridge_Plugin?id=Kamcldj76lhzt), [Google HomeGraph](https://developers.home.google.com/reference/home-graph/rest), [SmartThings](https://developer.smartthings.com/docs/service-integrations/api-overview), [SwitchBot](https://github.com/OpenWonderLabs/SwitchBotAPI), and [Apple service networking](https://support.apple.com/101555). V2Fly's maintained vendor categories and actively maintained integrations provide the evidence for consumer services that do not publish public APIs.
+
+### Discover domains from OpenWrt
+
+[`tools/discover_domains.py`](tools/discover_domains.py) extracts `query[A]` and `query[AAAA]` hostnames from dnsmasq logs, normalizes and de-duplicates them, removes common public-service and shared-infrastructure noise, and prints only names not already present in `output/russia-domains.txt`.
+
+Capture a representative session on the router, then stop it with `Ctrl-C`:
+
+```sh
+logread -f | grep dnsmasq > dns.log
+```
+
+Copy `dns.log` to the project and inspect it:
+
+```sh
+python tools/discover_domains.py --input dns.log
+```
+
+The utility also reads stdin when `--input` is omitted:
+
+```sh
+python tools/discover_domains.py < dns.log
+```
+
+Example report:
+
+```text
+Missing domains:
+
+api.example.vendor.com
+cloud.vendor.io
+mqtt.vendor.net
+```
+
+Treat the report as a review queue, not an automatic allowlist. Confirm that each candidate is a production endpoint used by the intended service, add it to `custom/smart-home.txt` or another focused `custom/*.txt` file, then run `python update.py` and `python validate.py`. Shared CDNs and analytics names should not be added unless there is clear service-specific evidence.
 
 ## OpenWrt installation
 
