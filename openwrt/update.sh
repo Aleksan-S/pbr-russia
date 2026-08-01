@@ -56,10 +56,10 @@ validate_list() {
             if (count < 2 && $0 !~ /^xn--/) {
                 exit 1
             }
-            for (index = 1; index <= count; index++) {
-                if (length(labels[index]) > 63 ||
-                    labels[index] !~ /^[a-z0-9]/ ||
-                    labels[index] !~ /[a-z0-9]$/) {
+            for (label_index = 1; label_index <= count; label_index++) {
+                if (length(labels[label_index]) > 63 ||
+                    labels[label_index] !~ /^[a-z0-9]/ ||
+                    labels[label_index] !~ /[a-z0-9]$/) {
                     exit 1
                 }
             }
