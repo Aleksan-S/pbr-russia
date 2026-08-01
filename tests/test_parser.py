@@ -15,6 +15,7 @@ from parser import (
     ParseError,
     atomic_write_text,
     load_custom_domains,
+    load_custom_sources_with_statistics,
     normalize_domain,
     parse_domain_rule,
     write_domain_list,
@@ -175,6 +176,41 @@ def test_custom_domains_are_validated_and_deduplicated(
 
     assert load_custom_domains(custom) == {"example.ru", "api.example.ru"}
     assert "Ignoring invalid custom rule" in caplog.text
+
+
+def test_multiple_custom_files_are_merged_and_deduplicated(
+    tmp_path: Path,
+) -> None:
+    custom_directory = tmp_path / "custom"
+    write_list(custom_directory, "manual.txt", "manual.ru\nshared.ru\n")
+    write_list(custom_directory, "smart-home.txt", "shared.ru\nsmart.ru\n")
+    write_list(custom_directory, "vendor.txt", "extra.ru\n")
+    legacy = tmp_path / "custom-domains.txt"
+    legacy.write_text("legacy.ru\nshared.ru\n", encoding="utf-8")
+
+    result = load_custom_sources_with_statistics(custom_directory, legacy)
+
+    assert result.domains == {
+        "extra.ru",
+        "legacy.ru",
+        "manual.ru",
+        "shared.ru",
+        "smart.ru",
+    }
+    assert result.duplicates_removed == 2
+    assert result.manual_domains == 4
+    assert result.smart_home_domains == 2
+
+
+def test_legacy_custom_file_remains_supported(tmp_path: Path) -> None:
+    legacy = tmp_path / "custom-domains.txt"
+    legacy.write_text("Legacy.RU.\n", encoding="utf-8")
+
+    result = load_custom_sources_with_statistics(None, legacy)
+
+    assert result.domains == {"legacy.ru"}
+    assert result.manual_domains == 1
+    assert result.smart_home_domains == 0
 
 
 def test_writer_sorts_and_refuses_empty_output(tmp_path: Path) -> None:

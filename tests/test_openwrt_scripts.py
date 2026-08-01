@@ -110,7 +110,7 @@ esac
             "PBR_RUSSIA_RAW_BASE": "https://fixture.invalid",
             "PBR_RUSSIA_LIST_URL": "https://fixture.invalid/domains.txt",
             "PBR_RUSSIA_ETC_DIR": str(etc_dir),
-            "PBR_RUSSIA_INSTALL_DIR": str(tmp_path / "install"),
+            "PBR_RUSSIA_INSTALL_DIR": str(tmp_path / "pbr-russia"),
             "PBR_RUSSIA_TARGET": str(tmp_path / "pbr" / "domains.txt"),
             "PBR_RUSSIA_CRON_FILE": str(etc_dir / "crontabs" / "root"),
             "PBR_RUSSIA_SKIP_ROOT_CHECK": "yes",

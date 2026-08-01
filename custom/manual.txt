@@ -1,0 +1,2 @@
+# Add manually maintained production domains here, one per line.
+# Additional *.txt files in this directory are loaded automatically.

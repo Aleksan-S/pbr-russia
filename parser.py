@@ -50,6 +50,8 @@ class ParseResult:
     includes: int = 0
     duplicates_removed: int = 0
     invalid_removed: int = 0
+    manual_domains: int = 0
+    smart_home_domains: int = 0
 
 
 class DomainListDownloader:
@@ -331,6 +333,67 @@ def load_custom_domains_with_statistics(path: Path) -> ParseResult:
         domains=domains,
         duplicates_removed=len(occurrences) - len(domains),
         invalid_removed=invalid_removed,
+    )
+
+
+def load_custom_sources_with_statistics(
+    custom_directory: Path | None,
+    legacy_path: Path | None = None,
+) -> ParseResult:
+    """Load every custom TXT source plus an optional legacy customization file.
+
+    ``smart-home.txt`` is tracked separately for reporting. All other files,
+    including the legacy file, are counted as manually maintained sources.
+    Missing directories and missing legacy files are intentionally ignored so
+    existing installations can migrate incrementally.
+    """
+    source_paths: list[Path] = []
+    if custom_directory is not None:
+        if custom_directory.exists() and not custom_directory.is_dir():
+            raise ParseError(
+                f"Custom domain directory is not a directory: {custom_directory}"
+            )
+        if custom_directory.is_dir():
+            source_paths.extend(
+                sorted(custom_directory.glob("*.txt"), key=lambda path: path.name)
+            )
+
+    if legacy_path is not None and legacy_path.exists():
+        if not legacy_path.is_file():
+            raise ParseError(f"Custom domain file is not a file: {legacy_path}")
+        known_paths = {path.resolve() for path in source_paths}
+        if legacy_path.resolve() not in known_paths:
+            source_paths.append(legacy_path)
+
+    merged_domains: set[str] = set()
+    manual_domains: set[str] = set()
+    smart_home_domains: set[str] = set()
+    duplicates_removed = 0
+    invalid_removed = 0
+
+    for source_path in source_paths:
+        result = load_custom_domains_with_statistics(source_path)
+        duplicates_removed += result.duplicates_removed
+        duplicates_removed += len(merged_domains & result.domains)
+        invalid_removed += result.invalid_removed
+        merged_domains.update(result.domains)
+
+        if source_path.name == "smart-home.txt":
+            smart_home_domains.update(result.domains)
+        else:
+            manual_domains.update(result.domains)
+
+    LOGGER.info(
+        "Loaded %d custom domains from %d source files",
+        len(merged_domains),
+        len(source_paths),
+    )
+    return ParseResult(
+        domains=frozenset(merged_domains),
+        duplicates_removed=duplicates_removed,
+        invalid_removed=invalid_removed,
+        manual_domains=len(manual_domains),
+        smart_home_domains=len(smart_home_domains),
     )
 
 

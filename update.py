@@ -18,7 +18,7 @@ from parser import (
     DomainListParser,
     ParseResult,
     atomic_write_text,
-    load_custom_domains_with_statistics,
+    load_custom_sources_with_statistics,
     write_domain_list,
 )
 
@@ -35,6 +35,8 @@ class GenerationStatistics:
     includes: int
     duplicates_removed: int
     invalid_removed: int
+    manual_domains: int = 0
+    smart_home_domains: int = 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,7 +53,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--custom",
         type=Path,
         default=PROJECT_ROOT / "custom-domains.txt",
-        help="path to additional domain rules",
+        help="path to the legacy additional domain rules file",
+    )
+    parser.add_argument(
+        "--custom-dir",
+        type=Path,
+        default=PROJECT_ROOT / "custom",
+        help="directory of additional *.txt domain rule files",
     )
     parser.add_argument(
         "--output",
@@ -96,6 +104,8 @@ def build_statistics(
             upstream.duplicates_removed + custom.duplicates_removed + source_overlap
         ),
         invalid_removed=upstream.invalid_removed + custom.invalid_removed,
+        manual_domains=custom.manual_domains,
+        smart_home_domains=custom.smart_home_domains,
     )
 
 
@@ -119,6 +129,8 @@ def write_statistics(
                     "includes",
                     "duplicates_removed",
                     "invalid_removed",
+                    "manual_domains",
+                    "smart_home_domains",
                 )
             )
             if numeric_fields_match and isinstance(existing.get("generated_at"), str):
@@ -136,7 +148,10 @@ def run(args: argparse.Namespace) -> int:
         )
         upstream = DomainListParser(repository / "data").parse_with_statistics(entries)
 
-    custom = load_custom_domains_with_statistics(args.custom)
+    custom = load_custom_sources_with_statistics(
+        getattr(args, "custom_dir", None),
+        args.custom,
+    )
     domains = upstream.domains | custom.domains
     domain_list_changed = write_domain_list(domains, args.output)
     statistics_path = getattr(

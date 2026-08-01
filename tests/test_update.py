@@ -79,6 +79,24 @@ def test_build_statistics_counts_cross_source_duplicates() -> None:
     )
 
 
+def test_build_statistics_includes_custom_source_counts() -> None:
+    upstream = ParseResult(domains=frozenset({"upstream.ru"}))
+    custom = ParseResult(
+        domains=frozenset({"manual.ru", "smart.ru"}),
+        manual_domains=1,
+        smart_home_domains=1,
+    )
+
+    statistics = update.build_statistics(
+        upstream,
+        custom,
+        generated_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+
+    assert statistics.manual_domains == 1
+    assert statistics.smart_home_domains == 1
+
+
 def test_statistics_keep_timestamp_when_generation_is_unchanged(
     tmp_path: Path,
 ) -> None:

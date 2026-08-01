@@ -6,11 +6,11 @@ An automatically maintained domain list for [OpenWrt Policy Based Routing](https
 
 ## What is included
 
-`category-ru` is V2Fly's Russian-services aggregation. Resolving it recursively includes its Russian TLD, banking, government, ecommerce, entertainment, medicine, retail, travel, and company lists. `custom-domains.txt` is merged afterward for domains that have not reached upstream.
+`category-ru` is V2Fly's Russian-services aggregation. Resolving it recursively includes its Russian TLD, banking, government, ecommerce, entertainment, medicine, retail, travel, and company lists. Every `custom/*.txt` file is merged afterward for domains that have not reached upstream. The original `custom-domains.txt` is still loaded for backward compatibility.
 
 The parser accepts V2Fly `domain:` and `full:` rules, including the documented prefix-less shorthand for `domain:`. It removes attributes following `@`, ignores `regexp:`, `keyword:`, and unknown rules, converts internationalized names to IDNA, rejects invalid DNS labels, removes duplicates, and sorts the final output.
 
-The generated files are [`output/russia-domains.txt`](output/russia-domains.txt) and [`output/statistics.json`](output/statistics.json). Statistics record the generation timestamp, final domain count, recursively processed includes, removed duplicates, and rejected invalid rules.
+The generated files are [`output/russia-domains.txt`](output/russia-domains.txt) and [`output/statistics.json`](output/statistics.json). Statistics record the generation timestamp, final domain count, recursively processed includes, removed duplicates, rejected invalid rules, and the unique domain counts contributed by manual and Smart Home sources.
 
 ## Architecture
 
@@ -19,7 +19,8 @@ flowchart LR
     V["V2Fly master archive"] --> D["Bounded HTTPS downloader"]
     D --> I["Safe ZIP extraction"]
     I --> P["Recursive include parser"]
-    C["custom-domains.txt"] --> P
+    C["custom/*.txt"] --> P
+    LC["legacy custom-domains.txt"] --> P
     P --> N["IDNA normalization and validation"]
     N --> O["Atomic output writer"]
     O --> L["russia-domains.txt"]
@@ -50,7 +51,8 @@ Optional CLI arguments:
 
 ```text
 --entry NAME       Resolve a different/additional V2Fly entry list (repeatable)
---custom PATH      Read local additions from another file
+--custom PATH      Read a legacy customization file from another path
+--custom-dir PATH  Read all *.txt customization files from another directory
 --output PATH      Write to another destination
 --statistics PATH  Write statistics to another destination
 --archive-url URL  Use another compatible source archive
@@ -58,6 +60,41 @@ Optional CLI arguments:
 ```
 
 Add custom entries as bare domains, `domain:example.ru`, or `full:host.example.ru`. Comments and `@attributes` are accepted. Invalid or unsupported entries are logged and skipped.
+
+### Custom domain files
+
+The generator discovers `*.txt` files directly inside [`custom/`](custom) in filename order; parser changes are not needed when adding a file. Put general additions in [`custom/manual.txt`](custom/manual.txt), or create a focused file such as `custom/my-provider.txt`. Domains are normalized, validated, de-duplicated across every custom file and the legacy file, then merged with V2Fly and sorted.
+
+[`custom/smart-home.txt`](custom/smart-home.txt) contains only verified production service domains. It has no wildcard, URL, IP address, test, or placeholder entries. `smart_home_domains` reports its unique normalized entries. `manual_domains` reports unique entries from all other custom TXT files and `custom-domains.txt`; a domain present in two sources is still emitted only once.
+
+### Supported Smart Home services
+
+The curated list covers these production cloud services:
+
+- Hikvision / Hik-Connect
+- EZVIZ
+- Xiaomi Home, Mi Home, Mi Account, Xiaomi Cloud, and Mi IoT
+- Aqara
+- Roborock
+- Dreame
+- Yeelight
+- TP-Link Tapo and TP-Link Kasa
+- Home Assistant Cloud (Nabu Casa)
+- Eufy Security
+- SwitchBot
+- Shelly Cloud
+- Meross
+- Tuya Smart and Smart Life
+- Govee
+- Nanoleaf
+- Philips Hue Cloud
+- LG ThinQ
+- Samsung SmartThings
+- Google Home
+- Amazon Alexa
+- Apple HomeKit cloud services
+
+The endpoint set is intentionally conservative. Public vendor documentation is used where available—for example [Aqara's regional API hosts](https://docs.aqara.com/docs/aqara-developer/aiot-api/getting-started-with-the-aiot-api), [Tuya's production data centers](https://developer.tuya.com/en/docs/iot/Tuya_Homebridge_Plugin?id=Kamcldj76lhzt), [Google HomeGraph](https://developers.home.google.com/reference/home-graph/rest), [SmartThings](https://developer.smartthings.com/docs/service-integrations/api-overview), [SwitchBot](https://github.com/OpenWonderLabs/SwitchBotAPI), and [Apple service networking](https://support.apple.com/101555). V2Fly's maintained vendor categories and actively maintained integrations provide the evidence for consumer services that do not publish public APIs.
 
 ## OpenWrt installation
 
@@ -154,7 +191,7 @@ No. The installer compares UCI values and the updater compares SHA-256 values. P
 
 ### How do I add a domain before V2Fly accepts it?
 
-Add it to `custom-domains.txt`, run `python update.py`, then run `python validate.py` before committing the generated outputs.
+Add it to `custom/manual.txt` or create another `custom/*.txt` file, run `python update.py`, then run `python validate.py` before committing the generated outputs. Existing deployments may continue using `custom-domains.txt`.
 
 ## Rollback
 

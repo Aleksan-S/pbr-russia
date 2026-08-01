@@ -1,7 +1,9 @@
 {
-  "generated_at": "2026-08-01T10:21:19.756975Z",
-  "domains": 1931,
+  "generated_at": "2026-08-01T11:20:32.539992Z",
+  "domains": 1978,
   "includes": 81,
   "duplicates_removed": 23,
-  "invalid_removed": 5
+  "invalid_removed": 5,
+  "manual_domains": 0,
+  "smart_home_domains": 47
 }
