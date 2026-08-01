@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="330" viewBox="0 0 1000 330" role="img" aria-labelledby="title description">
+  <title id="title">OpenWrt pbr-russia no-op update</title>
+  <description id="description">Terminal-style screenshot showing SHA256 comparison and an unchanged update.</description>
+  <rect width="1000" height="330" rx="14" fill="#111827"/>
+  <rect width="1000" height="48" rx="14" fill="#1f2937"/>
+  <circle cx="28" cy="24" r="7" fill="#ef4444"/><circle cx="52" cy="24" r="7" fill="#f59e0b"/><circle cx="76" cy="24" r="7" fill="#10b981"/>
+  <text x="500" y="30" text-anchor="middle" font-family="system-ui, sans-serif" font-size="15" fill="#d1d5db">root@openwrt — pbr-russia update</text>
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="17" fill="#e5e7eb">
+    <text x="28" y="92" fill="#86efac">root@openwrt:~#</text><text x="205" y="92">/usr/libexec/pbr-russia/update.sh</text>
+    <text x="28" y="134">Already up to date.</text>
+    <text x="28" y="186" fill="#86efac">root@openwrt:~#</text><text x="205" y="186">/etc/init.d/pbr status</text>
+    <text x="28" y="228">pbr 1.2.x running on OpenWrt</text>
+    <text x="28" y="262">Resolver set: dnsmasq.nftset</text>
+    <text x="28" y="296">Policy: Russian domains → wan</text>
+  </g>
+</svg>

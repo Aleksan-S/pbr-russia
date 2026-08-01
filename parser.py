@@ -10,6 +10,7 @@ import stat
 import tempfile
 import zipfile
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 import requests
@@ -22,6 +23,7 @@ DEFAULT_ARCHIVE_URL = (
     "https://github.com/v2fly/domain-list-community/" "archive/refs/heads/master.zip"
 )
 DEFAULT_MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
+DEFAULT_MAX_INCLUDE_DEPTH = 100
 
 _DOMAIN_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 _LIST_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._!+-]*")
@@ -38,6 +40,16 @@ class DownloadError(DomainListError):
 
 class ParseError(DomainListError):
     """Raised when the requested list graph cannot be resolved."""
+
+
+@dataclass(frozen=True, slots=True)
+class ParseResult:
+    """Immutable output and metrics from a parser run."""
+
+    domains: frozenset[str]
+    includes: int = 0
+    duplicates_removed: int = 0
+    invalid_removed: int = 0
 
 
 class DomainListDownloader:
@@ -134,24 +146,55 @@ class DomainListDownloader:
 class DomainListParser:
     """Resolve V2Fly domain lists and return normalized domains."""
 
-    def __init__(self, data_directory: Path) -> None:
+    def __init__(
+        self,
+        data_directory: Path,
+        *,
+        max_include_depth: int = DEFAULT_MAX_INCLUDE_DEPTH,
+    ) -> None:
+        if max_include_depth < 0:
+            raise ValueError("max_include_depth must not be negative")
         self.data_directory = data_directory.resolve()
-        self._cache: dict[str, frozenset[str]] = {}
+        self.max_include_depth = max_include_depth
+        self._cache: dict[str, tuple[str, ...]] = {}
+        self._includes = 0
+        self._invalid_removed = 0
 
     def parse(self, entry_lists: Iterable[str]) -> set[str]:
         """Recursively resolve one or more entry lists."""
-        domains: set[str] = set()
-        for entry_list in entry_lists:
-            domains.update(self._parse_list(entry_list, ()))
-        return domains
+        return set(self.parse_with_statistics(entry_lists).domains)
 
-    def _parse_list(self, list_name: str, stack: tuple[str, ...]) -> frozenset[str]:
+    def parse_with_statistics(self, entry_lists: Iterable[str]) -> ParseResult:
+        """Recursively resolve lists and return domains with generation metrics."""
+        self._cache.clear()
+        self._includes = 0
+        self._invalid_removed = 0
+
+        occurrences: list[str] = []
+        for entry_list in entry_lists:
+            occurrences.extend(self._parse_list(entry_list, ()))
+
+        domains = frozenset(occurrences)
+        return ParseResult(
+            domains=domains,
+            includes=self._includes,
+            duplicates_removed=len(occurrences) - len(domains),
+            invalid_removed=self._invalid_removed,
+        )
+
+    def _parse_list(self, list_name: str, stack: tuple[str, ...]) -> tuple[str, ...]:
         list_name = list_name.strip()
         if not _LIST_NAME.fullmatch(list_name):
             raise ParseError(f"Invalid include name: {list_name!r}")
         if list_name in stack:
             chain = " -> ".join((*stack, list_name))
             raise ParseError(f"Circular include detected: {chain}")
+        if len(stack) > self.max_include_depth:
+            chain = " -> ".join((*stack, list_name))
+            raise ParseError(
+                f"Maximum include depth of {self.max_include_depth} exceeded "
+                f"while resolving: {chain}"
+            )
         if list_name in self._cache:
             return self._cache[list_name]
 
@@ -162,7 +205,7 @@ class DomainListParser:
             raise ParseError(f"Included list does not exist: {list_name!r}")
 
         LOGGER.debug("Parsing V2Fly list %s", list_name)
-        domains: set[str] = set()
+        domains: list[str] = []
         next_stack = (*stack, list_name)
         try:
             lines = source_path.read_text(encoding="utf-8").splitlines()
@@ -175,13 +218,21 @@ class DomainListParser:
                 continue
 
             if line.startswith("include:"):
-                include_name = line.removeprefix("include:").split(maxsplit=1)[0]
-                domains.update(self._parse_list(include_name, next_stack))
+                include_value = line.removeprefix("include:").strip()
+                if not include_value:
+                    raise ParseError(
+                        f"Empty include target in {list_name}:{line_number}"
+                    )
+                include_name = include_value.split(maxsplit=1)[0]
+                self._includes += 1
+                domains.extend(self._parse_list(include_name, next_stack))
                 continue
 
-            domain = parse_domain_rule(line)
+            domain, invalid = _parse_domain_rule_with_status(line)
             if domain is not None:
-                domains.add(domain)
+                domains.append(domain)
+            elif invalid:
+                self._invalid_removed += 1
             elif not line.startswith(_UNSUPPORTED_RULE_PREFIXES):
                 LOGGER.debug(
                     "Ignoring unsupported or invalid rule in %s:%d: %s",
@@ -190,7 +241,7 @@ class DomainListParser:
                     line,
                 )
 
-        result = frozenset(domains)
+        result = tuple(domains)
         self._cache[list_name] = result
         return result
 
@@ -203,24 +254,32 @@ class DomainListParser:
 
 def parse_domain_rule(line: str) -> str | None:
     """Parse a supported V2Fly rule, returning a normalized domain if valid."""
+    domain, _ = _parse_domain_rule_with_status(DomainListParser._clean_line(line))
+    return domain
+
+
+def _parse_domain_rule_with_status(line: str) -> tuple[str | None, bool]:
+    """Return a domain and whether a supported rule was syntactically invalid."""
     if line.startswith(_UNSUPPORTED_RULE_PREFIXES) or line.startswith("include:"):
-        return None
+        return None, False
 
     if ":" in line:
         rule_type, value = line.split(":", maxsplit=1)
         if rule_type not in {"domain", "full"}:
-            return None
+            return None, False
     else:
         # V2Fly documents a missing prefix as shorthand for ``domain:``.
         value = line
 
-    candidate = value.split(maxsplit=1)[0] if value.split() else ""
-    return normalize_domain(candidate)
+    domain = normalize_domain(value)
+    return domain, domain is None
 
 
 def normalize_domain(value: str) -> str | None:
     """Convert a domain to lowercase ASCII and validate its DNS labels."""
-    value = value.strip().rstrip(".")
+    if not value or value != value.strip() or any(char.isspace() for char in value):
+        return None
+    value = value.rstrip(".")
     if not value or value.startswith("."):
         return None
 
@@ -234,37 +293,53 @@ def normalize_domain(value: str) -> str | None:
     labels = normalized.split(".")
     if any(not _DOMAIN_LABEL.fullmatch(label) for label in labels):
         return None
+    if len(labels) == 1 and not normalized.startswith("xn--"):
+        return None
     return normalized
 
 
 def load_custom_domains(path: Path) -> set[str]:
     """Load supported domain rules from a local customization file."""
+    return set(load_custom_domains_with_statistics(path).domains)
+
+
+def load_custom_domains_with_statistics(path: Path) -> ParseResult:
+    """Load custom rules and return domains with validation metrics."""
     if not path.is_file():
         raise ParseError(f"Custom domain file does not exist: {path}")
 
-    domains: set[str] = set()
+    occurrences: list[str] = []
+    invalid_removed = 0
     for line_number, raw_line in enumerate(
         path.read_text(encoding="utf-8").splitlines(), start=1
     ):
         line = DomainListParser._clean_line(raw_line)
         if not line:
             continue
-        domain = parse_domain_rule(line)
+        domain, invalid = _parse_domain_rule_with_status(line)
         if domain is None:
-            LOGGER.warning("Ignoring invalid custom rule at %s:%d", path, line_number)
+            if invalid:
+                invalid_removed += 1
+                LOGGER.warning(
+                    "Ignoring invalid custom rule at %s:%d", path, line_number
+                )
             continue
-        domains.add(domain)
-    return domains
+        occurrences.append(domain)
+
+    domains = frozenset(occurrences)
+    return ParseResult(
+        domains=domains,
+        duplicates_removed=len(occurrences) - len(domains),
+        invalid_removed=invalid_removed,
+    )
 
 
-def write_domain_list(domains: Iterable[str], output_path: Path) -> None:
-    """Write a deterministic list atomically."""
-    sorted_domains = sorted(set(domains))
-    if not sorted_domains:
-        raise ParseError("Refusing to write an empty domain list")
+def atomic_write_text(content: str, output_path: Path) -> bool:
+    """Atomically replace a UTF-8 file if and only if its content changed."""
+    if output_path.is_file() and output_path.read_text(encoding="utf-8") == content:
+        return False
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    content = "\n".join(sorted_domains) + "\n"
     temporary_name: str | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -280,6 +355,23 @@ def write_domain_list(domains: Iterable[str], output_path: Path) -> None:
             os.fsync(temporary_file.fileno())
             temporary_name = temporary_file.name
         os.replace(temporary_name, output_path)
+        return True
     finally:
         if temporary_name is not None:
             Path(temporary_name).unlink(missing_ok=True)
+
+
+def write_domain_list(domains: Iterable[str], output_path: Path) -> bool:
+    """Write a deterministic list atomically."""
+    sorted_domains = sorted(set(domains))
+    if not sorted_domains:
+        raise ParseError("Refusing to write an empty domain list")
+
+    invalid = [
+        domain for domain in sorted_domains if normalize_domain(domain) != domain
+    ]
+    if invalid:
+        raise ParseError(f"Refusing to write invalid domain: {invalid[0]!r}")
+
+    content = "\n".join(sorted_domains) + "\n"
+    return atomic_write_text(content, output_path)

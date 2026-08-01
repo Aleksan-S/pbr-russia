@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import tempfile
 from collections.abc import Sequence
+from dataclasses import asdict, dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 from parser import (
@@ -13,12 +16,25 @@ from parser import (
     DomainListDownloader,
     DomainListError,
     DomainListParser,
-    load_custom_domains,
+    ParseResult,
+    atomic_write_text,
+    load_custom_domains_with_statistics,
     write_domain_list,
 )
 
 LOGGER = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationStatistics:
+    """Stable, JSON-serializable generation metrics."""
+
+    generated_at: str
+    domains: int
+    includes: int
+    duplicates_removed: int
+    invalid_removed: int
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="destination domain list",
     )
     parser.add_argument(
+        "--statistics",
+        type=Path,
+        default=PROJECT_ROOT / "output" / "statistics.json",
+        help="destination generation statistics",
+    )
+    parser.add_argument(
         "--archive-url",
         default=DEFAULT_ARCHIVE_URL,
         help="override the V2Fly source archive URL",
@@ -56,23 +78,83 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_statistics(
+    upstream: ParseResult,
+    custom: ParseResult,
+    *,
+    generated_at: datetime | None = None,
+) -> GenerationStatistics:
+    """Combine parser metrics without losing cross-source duplicates."""
+    domains = upstream.domains | custom.domains
+    source_overlap = len(upstream.domains & custom.domains)
+    timestamp = generated_at or datetime.now(UTC)
+    return GenerationStatistics(
+        generated_at=timestamp.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        domains=len(domains),
+        includes=upstream.includes,
+        duplicates_removed=(
+            upstream.duplicates_removed + custom.duplicates_removed + source_overlap
+        ),
+        invalid_removed=upstream.invalid_removed + custom.invalid_removed,
+    )
+
+
+def write_statistics(
+    statistics: GenerationStatistics,
+    output_path: Path,
+    *,
+    force_new_timestamp: bool,
+) -> bool:
+    """Write statistics atomically while preserving stable no-op generations."""
+    if output_path.is_file() and not force_new_timestamp:
+        try:
+            existing = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = None
+        if isinstance(existing, dict):
+            numeric_fields_match = all(
+                existing.get(field) == getattr(statistics, field)
+                for field in (
+                    "domains",
+                    "includes",
+                    "duplicates_removed",
+                    "invalid_removed",
+                )
+            )
+            if numeric_fields_match and isinstance(existing.get("generated_at"), str):
+                statistics = replace(statistics, generated_at=existing["generated_at"])
+
+    content = json.dumps(asdict(statistics), indent=2, ensure_ascii=True) + "\n"
+    return atomic_write_text(content, output_path)
+
+
 def run(args: argparse.Namespace) -> int:
     entries = args.entries or ["category-ru"]
     with tempfile.TemporaryDirectory(prefix="pbr-russia-") as temporary_directory:
         repository = DomainListDownloader(args.archive_url).download(
             Path(temporary_directory)
         )
-        upstream_domains = DomainListParser(repository / "data").parse(entries)
+        upstream = DomainListParser(repository / "data").parse_with_statistics(entries)
 
-    custom_domains = load_custom_domains(args.custom)
-    domains = upstream_domains | custom_domains
-    write_domain_list(domains, args.output)
+    custom = load_custom_domains_with_statistics(args.custom)
+    domains = upstream.domains | custom.domains
+    domain_list_changed = write_domain_list(domains, args.output)
+    statistics_path = getattr(
+        args, "statistics", args.output.with_name("statistics.json")
+    )
+    statistics = build_statistics(upstream, custom)
+    statistics_changed = write_statistics(
+        statistics,
+        statistics_path,
+        force_new_timestamp=domain_list_changed,
+    )
     LOGGER.info(
-        "Wrote %d domains (%d upstream, %d custom) to %s",
+        "Generated %d domains (%d upstream, %d custom) at %s; changed=%s",
         len(domains),
-        len(upstream_domains),
-        len(custom_domains),
+        len(upstream.domains),
+        len(custom.domains),
         args.output,
+        domain_list_changed or statistics_changed,
     )
     return 0
 

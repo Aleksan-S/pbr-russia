@@ -1,6 +1,10 @@
 name: Update Russian domain list
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
@@ -39,15 +43,55 @@ jobs:
       - name: Regenerate domain list
         run: python update.py
 
-      - name: Commit updated list
+      - name: Validate generated list
+        run: python validate.py output/russia-domains.txt
+
+      - name: Upload generated artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbr-russia-${{ github.run_id }}
+          path: |
+            output/russia-domains.txt
+            output/statistics.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit updated outputs
+        if: github.event_name != 'pull_request'
+        id: commit
         shell: bash
         run: |
-          git add output/russia-domains.txt
+          git add output/russia-domains.txt output/statistics.json
           if git diff --cached --quiet; then
-            echo "Domain list is already current."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Generated outputs are already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Update Russian domain list"
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and publish release
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="v$(date -u +'%Y.%m.%d')"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release upload "$tag" output/russia-domains.txt --clobber
+            else
+              gh release create "$tag" output/russia-domains.txt \
+                --title "Russian domain list $tag" \
+                --notes "Automated weekly domain-list release."
+            fi
+            exit 0
+          fi
+          git tag -a "$tag" -m "Russian domain list $tag"
+          git push origin "$tag"
+          gh release create "$tag" output/russia-domains.txt \
+            --title "Russian domain list $tag" \
+            --notes "Automated weekly domain-list release."

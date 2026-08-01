@@ -876,7 +876,6 @@ mordovia.ru
 more.tv
 mos.ru
 mos.transport.vtb.ru
-moscow
 mosgorzdrav.ru
 mosmetro.ru
 mosmetro.tech
@@ -1213,7 +1212,6 @@ rtrunews.com
 rttv.com
 rttv.ru
 rtxv.ru
-ru
 ru.ccb.com
 ru.com
 ru.net
@@ -1411,7 +1409,6 @@ stats.vk-portal.net
 stavropol.ru
 stolichki.ru
 stv.ru
-su
 summerstage.ru
 summitceo.ru
 support-uber.com
@@ -1456,7 +1453,6 @@ target.my.com
 target.vk.com
 target.vk.ru
 targetads.io
-tatar
 tatarstan.ru
 tatsotsbank.ru
 taxi.yandex.ru
@@ -1846,7 +1842,6 @@ yaklass.ru
 yakutia.ru
 yamal.ru
 yanao.ru
-yandex
 yandex-bank.net
 yandex-metrica.ru
 yandex-team.ru

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="430" viewBox="0 0 1000 430" role="img" aria-labelledby="title description">
+  <title id="title">Successful pbr-russia installation on OpenWrt</title>
+  <description id="description">Terminal-style screenshot showing installer output and PBR configuration.</description>
+  <rect width="1000" height="430" rx="14" fill="#111827"/>
+  <rect width="1000" height="48" rx="14" fill="#1f2937"/>
+  <circle cx="28" cy="24" r="7" fill="#ef4444"/><circle cx="52" cy="24" r="7" fill="#f59e0b"/><circle cx="76" cy="24" r="7" fill="#10b981"/>
+  <text x="500" y="30" text-anchor="middle" font-family="system-ui, sans-serif" font-size="15" fill="#d1d5db">root@openwrt — pbr-russia install</text>
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="17" fill="#e5e7eb">
+    <text x="28" y="88" fill="#86efac">root@openwrt:~#</text><text x="205" y="88">INSTALL_CRON=yes PBR_INTERFACE=wan sh install.sh</text>
+    <text x="28" y="124">pbr-russia: updated /etc/pbr/russia-domains.txt</text>
+    <text x="28" y="158">pbr-russia: installed using interface 'wan'</text>
+    <text x="28" y="192">pbr-russia: PBR source: file:///etc/pbr/russia-domains.txt</text>
+    <text x="28" y="226">pbr-russia: resolver: dnsmasq.nftset; weekly cron: yes</text>
+    <text x="28" y="274" fill="#86efac">root@openwrt:~#</text><text x="205" y="274">uci show pbr.russia_domains</text>
+    <text x="28" y="310">pbr.russia_domains=policy</text>
+    <text x="28" y="344">pbr.russia_domains.name='Russian domains'</text>
+    <text x="28" y="378">pbr.russia_domains.interface='wan'</text>
+    <text x="28" y="412">pbr.russia_domains.dest_addr='file:///etc/pbr/russia-domains.txt'</text>
+  </g>
+</svg>
