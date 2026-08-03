@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -38,6 +39,20 @@ def make_fake_environment(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
     commit_log = tmp_path / "commits.log"
     domain_source = tmp_path / "domains.txt"
     make_domain_list(domain_source)
+    checksum_source = tmp_path / "SHA256SUMS"
+    checksum_source.write_text(
+        "\n".join(
+            (
+                f"{hashlib.sha256(UPDATE_SCRIPT.read_bytes()).hexdigest()}  update.sh",
+                (
+                    f"{hashlib.sha256(domain_source.read_bytes()).hexdigest()}  "
+                    "russia-domains.txt"
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     write_executable(
         fake_bin / "uclient-fetch",
@@ -46,6 +61,7 @@ destination=$3
 url=$4
 case "$url" in
     */openwrt/update.sh) cp "$FAKE_UPDATE_SOURCE" "$destination" ;;
+    */SHA256SUMS) cp "$FAKE_CHECKSUM_SOURCE" "$destination" ;;
     *) cp "$FAKE_LIST_SOURCE" "$destination" ;;
 esac
 """,
@@ -104,11 +120,13 @@ esac
             "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
             "FAKE_UPDATE_SOURCE": str(UPDATE_SCRIPT),
             "FAKE_LIST_SOURCE": str(domain_source),
+            "FAKE_CHECKSUM_SOURCE": str(checksum_source),
             "FAKE_UCI_STATE": str(uci_state),
             "FAKE_COMMIT_LOG": str(commit_log),
             "FAKE_INIT_LOG": str(init_log),
             "PBR_RUSSIA_RAW_BASE": "https://fixture.invalid",
             "PBR_RUSSIA_LIST_URL": "https://fixture.invalid/domains.txt",
+            "PBR_RUSSIA_CHECKSUMS_URL": "https://fixture.invalid/SHA256SUMS",
             "PBR_RUSSIA_ETC_DIR": str(etc_dir),
             "PBR_RUSSIA_INSTALL_DIR": str(tmp_path / "pbr-russia"),
             "PBR_RUSSIA_TARGET": str(tmp_path / "pbr" / "domains.txt"),
@@ -191,3 +209,33 @@ def test_update_changed_restarts_pbr_once(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert init_log.read_text(encoding="utf-8").splitlines() == ["pbr restart"]
+
+
+@POSIX_ONLY
+def test_update_rejects_a_list_with_the_wrong_checksum(tmp_path: Path) -> None:
+    environment, _, init_log = make_fake_environment(tmp_path)
+    checksum_source = Path(environment["FAKE_CHECKSUM_SOURCE"])
+    checksum_source.write_text(f"{'0' * 64}  russia-domains.txt\n", encoding="utf-8")
+
+    result = run_script(UPDATE_SCRIPT, environment)
+
+    assert result.returncode == 1
+    assert "SHA-256 verification failed" in result.stdout
+    assert not Path(environment["PBR_RUSSIA_TARGET"]).exists()
+    assert not init_log.exists()
+
+
+@POSIX_ONLY
+def test_installer_rejects_an_updater_with_the_wrong_checksum(
+    tmp_path: Path,
+) -> None:
+    environment, _, init_log = make_fake_environment(tmp_path)
+    checksum_source = Path(environment["FAKE_CHECKSUM_SOURCE"])
+    checksum_source.write_text(f"{'0' * 64}  update.sh\n", encoding="utf-8")
+
+    result = run_script(INSTALL_SCRIPT, environment)
+
+    assert result.returncode == 1
+    assert "SHA-256 verification failed" in result.stdout
+    assert not (Path(environment["PBR_RUSSIA_INSTALL_DIR"]) / "update.sh").exists()
+    assert not init_log.exists()

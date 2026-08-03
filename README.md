@@ -10,7 +10,7 @@ An automatically maintained domain list for [OpenWrt Policy Based Routing](https
 
 The parser accepts V2Fly `domain:` and `full:` rules, including the documented prefix-less shorthand for `domain:`. It removes attributes following `@`, ignores `regexp:`, `keyword:`, and unknown rules, converts internationalized names to IDNA, rejects invalid DNS labels, removes duplicates, and sorts the final output.
 
-The generated files are [`output/russia-domains.txt`](output/russia-domains.txt) and [`output/statistics.json`](output/statistics.json). Statistics record the generation timestamp, final domain count, recursively processed includes, removed duplicates, rejected invalid rules, and the unique domain counts contributed by manual and Smart Home sources.
+The generated files are [`output/russia-domains.txt`](output/russia-domains.txt), [`output/statistics.json`](output/statistics.json), and [`output/SHA256SUMS`](output/SHA256SUMS). The checksum manifest also covers the published OpenWrt installer and updater. Statistics record the generation timestamp, final domain count, recursively processed includes, removed duplicates, rejected invalid rules, and the unique domain counts contributed by manual and Smart Home sources.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ flowchart LR
     N --> O["Atomic output writer"]
     O --> L["russia-domains.txt"]
     O --> S["statistics.json"]
-    L --> Q["CI release validation"]
+    L --> Q["CI release validation and SHA-256 manifest"]
     Q --> R["GitHub artifact and dated release"]
     L --> W["OpenWrt SHA-256 updater"]
     W --> B["PBR dnsmasq.nftset policy"]
@@ -132,10 +132,21 @@ Treat the report as a review queue, not an automatic allowlist. Confirm that eac
 
 ## OpenWrt installation
 
-The router must have the `pbr` package installed and configured. Run as root:
+The router must have the `pbr` package installed and configured. Download the latest release manifest and installer, verify SHA-256, and only then run the installer as root:
 
 ```sh
-uclient-fetch -qO- https://raw.githubusercontent.com/Aleksan-S/pbr-russia/main/openwrt/install.sh | sh
+(
+    set -eu
+    release_base=https://github.com/Aleksan-S/pbr-russia/releases/latest/download
+    temporary_directory=$(mktemp -d)
+    trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+    uclient-fetch -q -O "$temporary_directory/SHA256SUMS" "$release_base/SHA256SUMS"
+    uclient-fetch -q -O "$temporary_directory/install.sh" "$release_base/install.sh"
+    expected=$(awk '$2 == "install.sh" && length($1) == 64 && $1 !~ /[^0-9A-Fa-f]/ { value=tolower($1); matches++ } END { if (matches == 1) print value; else exit 1 }' "$temporary_directory/SHA256SUMS")
+    actual=$(sha256sum "$temporary_directory/install.sh" | awk '{print tolower($1)}')
+    [ "$actual" = "$expected" ] || { echo "Installer checksum verification failed" >&2; exit 1; }
+    sh "$temporary_directory/install.sh"
+)
 ```
 
 The installer is idempotent: it uses the named `pbr.russia_domains` section and updates that section in place. Running it again cannot create a duplicate policy. It:
@@ -149,17 +160,19 @@ The installer is idempotent: it uses the named `pbr.russia_domains` section and 
 - sets `pbr.config.resolver_set` to `dnsmasq.nftset`; and
 - restarts PBR only when the policy configuration or downloaded list changed.
 
-Weekly router updates are opt-in. Set `INSTALL_CRON=yes` to install `30 4 * * 1 /usr/libexec/pbr-russia/update.sh`; the default is `INSTALL_CRON=no`:
+Weekly router updates are opt-in. Set `INSTALL_CRON=yes` on the final `sh` command in the verified installation block to install `30 4 * * 1 /usr/libexec/pbr-russia/update.sh`; the default is `INSTALL_CRON=no`:
 
 ```sh
-INSTALL_CRON=yes uclient-fetch -qO- https://raw.githubusercontent.com/Aleksan-S/pbr-russia/main/openwrt/install.sh | sh
+INSTALL_CRON=yes sh "$temporary_directory/install.sh"
 ```
 
-To select another PBR interface, set it during installation:
+To select another PBR interface, use the same pattern on the final command:
 
 ```sh
-PBR_INTERFACE=wg0 uclient-fetch -qO- https://raw.githubusercontent.com/Aleksan-S/pbr-russia/main/openwrt/install.sh | sh
+PBR_INTERFACE=wg0 sh "$temporary_directory/install.sh"
 ```
+
+The two short commands above are replacements for the final `sh` line inside the complete verified installation block; they are not standalone commands after the temporary directory has been removed.
 
 Run an immediate update with:
 
@@ -167,7 +180,7 @@ Run an immediate update with:
 /usr/libexec/pbr-russia/update.sh
 ```
 
-The updater validates the download, compares SHA-256 checksums, replaces it atomically only when changed, and restarts PBR only after a changed file. An unchanged run prints `Already up to date.` Environment variables `PBR_RUSSIA_LIST_URL` and `PBR_RUSSIA_TARGET` can override its source and destination.
+The installer verifies `update.sh` against the release manifest before installing it. The updater separately downloads the manifest, verifies `russia-domains.txt`, validates its contents, and replaces the local list atomically only when changed. It restarts PBR only after a changed file; an unchanged run prints `Already up to date.` Environment variables `PBR_RUSSIA_RELEASE_BASE`, `PBR_RUSSIA_LIST_URL`, `PBR_RUSSIA_CHECKSUMS_URL`, and `PBR_RUSSIA_TARGET` can override its release, source, manifest, and destination. A custom list URL must be paired with a checksum manifest that contains exactly one `russia-domains.txt` entry.
 
 > The policy interface determines where matching Russian traffic is routed. Confirm that `wan` (or your override) matches your network design before installation.
 
@@ -181,7 +194,7 @@ The following terminal captures illustrate a successful install and an idempoten
 
 ## Automation
 
-The GitHub Actions workflow runs every Monday at 03:00 UTC and can also be started manually. It uses Python 3.12, runs Black, Ruff, and pytest, regenerates both outputs, and independently rejects duplicates, invalid domains, reserved suffixes, or fewer than 1,500 domains. It commits only material changes, uploads a workflow artifact, creates tag `vYYYY.MM.DD`, and attaches `russia-domains.txt` to the GitHub Release.
+The GitHub Actions workflow runs every Monday at 03:00 UTC and can also be started manually. Every third-party action is pinned to a full commit SHA. A read-only job uses Python 3.12, runs Black, Ruff, pytest, and checksum validation, regenerates the outputs, and independently rejects duplicates, invalid domains, reserved suffixes, or fewer than 1,500 domains. A separate non-PR job receives `contents: write` only for committing material output changes and publishing tag `vYYYY.MM.DD`. If that date already exists, the run and attempt numbers are appended instead of modifying an existing release. Releases contain `install.sh`, `update.sh`, `russia-domains.txt`, `statistics.json`, and `SHA256SUMS`.
 
 ## Quality checks
 
@@ -190,9 +203,10 @@ black --check .
 ruff check .
 pytest
 python validate.py
+python tools/generate_checksums.py --check
 ```
 
-The downloader uses HTTPS, bounded downloads, retries, timeouts, archive path validation, and atomic output replacement. Include chains are cycle-checked and limited to 100 levels. Tests cover recursion, cycles, depth limits, attributes, IDNA, duplicates, invalid and empty categories, large outputs, statistics, failed atomic replacement, validation gates, installer idempotency, and changed/unchanged router updates.
+The downloader uses HTTPS, bounded downloads, retries, timeouts, archive path validation, credential-redacted URL logging, and atomic output replacement. Include chains are cycle-checked and limited to 100 levels. Tests cover recursion, cycles, depth limits, attributes, IDNA, duplicates, invalid and empty categories, large outputs, statistics, failed atomic replacement, validation gates, pinned Actions, current release checksums, installer idempotency, checksum failures, and changed/unchanged router updates.
 
 ## Troubleshooting
 
@@ -202,7 +216,8 @@ The downloader uses HTTPS, bounded downloads, retries, timeouts, archive path va
 | Installer reports missing nftset support | `dnsmasq --version \| grep nftset` | Replace `dnsmasq` with the OpenWrt `dnsmasq-full` package appropriate for the installed release. |
 | Domains do not follow the policy | `uci get pbr.config.resolver_set` | It must print `dnsmasq.nftset`; flush client DNS caches after changing policies. |
 | PBR rejects the file URL | `command -v curl` | Install `curl`; PBR uses it for `file://` policy sources. |
-| Updater rejects a download | `wc -l /etc/pbr/russia-domains.txt` | Confirm GitHub access and that the remote list contains at least 1,500 valid unique domains. |
+| Updater rejects a checksum | Re-download `SHA256SUMS` and the asset from the same release | Do not install the file; retry later and confirm that both URLs use the same release base. |
+| Updater rejects list validation | `wc -l /etc/pbr/russia-domains.txt` | Confirm GitHub access and that the remote list contains at least 1,500 valid unique domains. |
 | Wrong route is selected | `uci get pbr.russia_domains.interface` | Re-run with the correct `PBR_INTERFACE`, for example `PBR_INTERFACE=wg0`. |
 
 ## FAQ

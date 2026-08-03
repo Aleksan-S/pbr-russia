@@ -12,6 +12,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -28,6 +29,38 @@ DEFAULT_MAX_INCLUDE_DEPTH = 100
 _DOMAIN_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 _LIST_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._!+-]*")
 _UNSUPPORTED_RULE_PREFIXES = ("keyword:", "regexp:")
+_SENSITIVE_QUERY_KEY = re.compile(
+    r"(?:auth|credential|key|pass(?:word|wd)?|secret|signature|token)", re.IGNORECASE
+)
+
+
+def redact_url_credentials(url: str) -> str:
+    """Return a log-safe URL with userinfo and secret query values removed."""
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        return "<redacted-url>"
+
+    if not parts.scheme or not parts.netloc or hostname is None:
+        return url
+
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    if port is not None:
+        host = f"{host}:{port}"
+    if parts.username is not None or parts.password is not None:
+        host = f"REDACTED@{host}"
+
+    query = urlencode(
+        [
+            (key, "REDACTED" if _SENSITIVE_QUERY_KEY.search(key) else value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        ],
+        doseq=True,
+    )
+    fragment = "REDACTED" if parts.fragment else ""
+    return urlunsplit((parts.scheme, host, parts.path, query, fragment))
 
 
 class DomainListError(RuntimeError):
@@ -86,7 +119,8 @@ class DomainListDownloader:
     def download(self, destination: Path) -> Path:
         """Download into *destination* and return the extracted repository root."""
         destination.mkdir(parents=True, exist_ok=True)
-        LOGGER.info("Downloading V2Fly data from %s", self.archive_url)
+        safe_archive_url = redact_url_credentials(self.archive_url)
+        LOGGER.info("Downloading V2Fly data from %s", safe_archive_url)
 
         try:
             with self._session.get(
@@ -107,7 +141,10 @@ class DomainListDownloader:
                         )
                     archive_bytes.write(chunk)
         except requests.RequestException as exc:
-            raise DownloadError(f"Failed to download upstream archive: {exc}") from exc
+            raise DownloadError(
+                "Failed to download upstream archive from "
+                f"{safe_archive_url}: {type(exc).__name__}"
+            ) from exc
 
         archive_bytes.seek(0)
         try:

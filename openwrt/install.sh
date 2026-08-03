@@ -2,7 +2,17 @@
 
 set -eu
 
-RAW_BASE="${PBR_RUSSIA_RAW_BASE:-https://raw.githubusercontent.com/Aleksan-S/pbr-russia/main}"
+DEFAULT_RELEASE_BASE="https://github.com/Aleksan-S/pbr-russia/releases/latest/download"
+RELEASE_BASE="${PBR_RUSSIA_RELEASE_BASE:-$DEFAULT_RELEASE_BASE}"
+if [ -n "${PBR_RUSSIA_RAW_BASE:-}" ]; then
+    DEFAULT_UPDATE_URL="${PBR_RUSSIA_RAW_BASE%/}/openwrt/update.sh"
+    DEFAULT_CHECKSUMS_URL="${PBR_RUSSIA_RAW_BASE%/}/output/SHA256SUMS"
+else
+    DEFAULT_UPDATE_URL="${RELEASE_BASE%/}/update.sh"
+    DEFAULT_CHECKSUMS_URL="${RELEASE_BASE%/}/SHA256SUMS"
+fi
+UPDATE_URL="${PBR_RUSSIA_UPDATE_URL:-$DEFAULT_UPDATE_URL}"
+CHECKSUMS_URL="${PBR_RUSSIA_CHECKSUMS_URL:-$DEFAULT_CHECKSUMS_URL}"
 PBR_INTERFACE="${PBR_INTERFACE:-wan}"
 INSTALL_CRON="${INSTALL_CRON:-no}"
 ETC_DIR="${PBR_RUSSIA_ETC_DIR:-/etc}"
@@ -19,6 +29,7 @@ CONFIG_CHANGED=0
 CRON_CHANGED=0
 FILE_STATUS="unchanged"
 TEMP_SCRIPT=""
+TEMP_CHECKSUMS=""
 TEMP_CRON=""
 STATUS_FILE=""
 
@@ -44,8 +55,39 @@ download() {
 
 cleanup() {
     [ -z "$TEMP_SCRIPT" ] || rm -f "$TEMP_SCRIPT"
+    [ -z "$TEMP_CHECKSUMS" ] || rm -f "$TEMP_CHECKSUMS"
     [ -z "$TEMP_CRON" ] || rm -f "$TEMP_CRON"
     [ -z "$STATUS_FILE" ] || rm -f "$STATUS_FILE"
+}
+
+checksum_for() {
+    asset_name=$1
+    manifest=$2
+    awk -v asset="$asset_name" '
+        $2 == asset && length($1) == 64 && $1 !~ /[^0-9A-Fa-f]/ {
+            checksum = tolower($1)
+            matches++
+        }
+        END {
+            if (matches == 1) print checksum
+            else exit 1
+        }
+    ' "$manifest"
+}
+
+verify_checksum() {
+    file=$1
+    asset_name=$2
+    manifest=$3
+    expected=$(checksum_for "$asset_name" "$manifest") || {
+        log "checksum manifest has no unique valid entry for $asset_name"
+        return 1
+    }
+    actual=$(sha256sum "$file" | awk '{print tolower($1)}')
+    if [ "$actual" != "$expected" ]; then
+        log "SHA-256 verification failed for $asset_name"
+        return 1
+    fi
 }
 
 ensure_curl() {
@@ -124,9 +166,19 @@ fi
 
 ensure_curl
 
+command -v sha256sum >/dev/null 2>&1 || {
+    log "sha256sum is required"
+    exit 1
+}
+
 mkdir -p "$INSTALL_DIR" "$(dirname "$DOMAIN_FILE")"
 TEMP_SCRIPT=$(mktemp "$INSTALL_DIR/.update.XXXXXX")
-download "$RAW_BASE/openwrt/update.sh" "$TEMP_SCRIPT"
+TEMP_CHECKSUMS=$(mktemp "$INSTALL_DIR/.checksums.XXXXXX")
+download "$CHECKSUMS_URL" "$TEMP_CHECKSUMS"
+download "$UPDATE_URL" "$TEMP_SCRIPT"
+verify_checksum "$TEMP_SCRIPT" "update.sh" "$TEMP_CHECKSUMS"
+rm -f "$TEMP_CHECKSUMS"
+TEMP_CHECKSUMS=""
 chmod 0755 "$TEMP_SCRIPT"
 if [ ! -f "$UPDATE_SCRIPT" ] || ! cmp -s "$TEMP_SCRIPT" "$UPDATE_SCRIPT"; then
     mv -f "$TEMP_SCRIPT" "$UPDATE_SCRIPT"

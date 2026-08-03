@@ -18,6 +18,7 @@ from parser import (
     load_custom_sources_with_statistics,
     normalize_domain,
     parse_domain_rule,
+    redact_url_credentials,
     write_domain_list,
 )
 
@@ -271,6 +272,12 @@ class FakeSession(requests.Session):
         return FakeResponse(self.content)
 
 
+class FailingSession(requests.Session):
+    def get(self, url: str, **kwargs: object) -> FakeResponse:
+        del kwargs
+        raise requests.ConnectionError(f"failed to connect to {url}")
+
+
 def make_zip(files: dict[str, str]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -299,3 +306,42 @@ def test_downloader_rejects_path_traversal(tmp_path: Path) -> None:
 
     with pytest.raises(DownloadError, match="unsafe path"):
         downloader.download(tmp_path)
+
+
+def test_archive_url_credentials_are_redacted_from_logs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    content = make_zip({"repository/data/category-ru": "ru\n"})
+    archive_url = (
+        "https://build-user:super-secret@example.invalid/archive.zip"
+        "?access_token=query-secret&branch=main"
+    )
+    downloader = DomainListDownloader(archive_url, session=FakeSession(content))
+
+    with caplog.at_level("INFO"):
+        downloader.download(tmp_path)
+
+    assert "super-secret" not in caplog.text
+    assert "query-secret" not in caplog.text
+    assert "build-user" not in caplog.text
+    assert "REDACTED" in caplog.text
+    assert "branch=main" in caplog.text
+
+
+def test_malformed_archive_url_is_never_logged_verbatim() -> None:
+    assert redact_url_credentials(
+        "https://user:secret@example.invalid:bad/archive"
+    ) == ("<redacted-url>")
+
+
+def test_archive_url_credentials_are_redacted_from_download_errors(
+    tmp_path: Path,
+) -> None:
+    archive_url = "https://user:secret@example.invalid/archive.zip?token=query-secret"
+    downloader = DomainListDownloader(archive_url, session=FailingSession())
+
+    with pytest.raises(DownloadError) as error:
+        downloader.download(tmp_path)
+
+    assert "secret" not in str(error.value)
+    assert "REDACTED" in str(error.value)

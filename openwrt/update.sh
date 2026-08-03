@@ -2,7 +2,10 @@
 
 set -eu
 
-LIST_URL="${PBR_RUSSIA_LIST_URL:-https://raw.githubusercontent.com/Aleksan-S/pbr-russia/main/output/russia-domains.txt}"
+DEFAULT_RELEASE_BASE="https://github.com/Aleksan-S/pbr-russia/releases/latest/download"
+RELEASE_BASE="${PBR_RUSSIA_RELEASE_BASE:-$DEFAULT_RELEASE_BASE}"
+LIST_URL="${PBR_RUSSIA_LIST_URL:-${RELEASE_BASE%/}/russia-domains.txt}"
+CHECKSUMS_URL="${PBR_RUSSIA_CHECKSUMS_URL:-${RELEASE_BASE%/}/SHA256SUMS}"
 TARGET="${PBR_RUSSIA_TARGET:-/etc/pbr/russia-domains.txt}"
 PBR_INIT_SCRIPT="${PBR_INIT_SCRIPT:-/etc/init.d/pbr}"
 RESTART_PBR="${PBR_RUSSIA_RESTART:-yes}"
@@ -11,6 +14,7 @@ MINIMUM_DOMAINS="${PBR_RUSSIA_MINIMUM_DOMAINS:-1500}"
 SKIP_ROOT_CHECK="${PBR_RUSSIA_SKIP_ROOT_CHECK:-no}"
 TARGET_DIR=$(dirname "$TARGET")
 TEMP_FILE=""
+TEMP_CHECKSUMS=""
 
 log() {
     printf '%s\n' "pbr-russia: $*"
@@ -42,6 +46,24 @@ cleanup() {
     if [ -n "$TEMP_FILE" ] && [ -f "$TEMP_FILE" ]; then
         rm -f "$TEMP_FILE"
     fi
+    if [ -n "$TEMP_CHECKSUMS" ] && [ -f "$TEMP_CHECKSUMS" ]; then
+        rm -f "$TEMP_CHECKSUMS"
+    fi
+}
+
+checksum_for() {
+    asset_name=$1
+    manifest=$2
+    awk -v asset="$asset_name" '
+        $2 == asset && length($1) == 64 && $1 !~ /[^0-9A-Fa-f]/ {
+            checksum = tolower($1)
+            matches++
+        }
+        END {
+            if (matches == 1) print checksum
+            else exit 1
+        }
+    ' "$manifest"
 }
 
 validate_list() {
@@ -106,16 +128,29 @@ command -v sha256sum >/dev/null 2>&1 || {
 
 mkdir -p "$TARGET_DIR"
 TEMP_FILE=$(mktemp "$TARGET_DIR/.russia-domains.XXXXXX")
+TEMP_CHECKSUMS=$(mktemp "$TARGET_DIR/.checksums.XXXXXX")
+download "$CHECKSUMS_URL" "$TEMP_CHECKSUMS"
 download "$LIST_URL" "$TEMP_FILE"
+
+EXPECTED_SHA256=$(checksum_for "russia-domains.txt" "$TEMP_CHECKSUMS") || {
+    log "checksum manifest has no unique valid entry for russia-domains.txt"
+    exit 1
+}
+NEW_SHA256=$(sha256sum "$TEMP_FILE" | awk '{print tolower($1)}')
+if [ "$NEW_SHA256" != "$EXPECTED_SHA256" ]; then
+    log "SHA-256 verification failed for russia-domains.txt"
+    exit 1
+fi
+rm -f "$TEMP_CHECKSUMS"
+TEMP_CHECKSUMS=""
 
 if [ ! -s "$TEMP_FILE" ] || ! validate_list "$TEMP_FILE"; then
     log "downloaded list failed validation"
     exit 1
 fi
 
-NEW_SHA256=$(sha256sum "$TEMP_FILE" | awk '{print $1}')
 if [ -f "$TARGET" ]; then
-    CURRENT_SHA256=$(sha256sum "$TARGET" | awk '{print $1}')
+    CURRENT_SHA256=$(sha256sum "$TARGET" | awk '{print tolower($1)}')
     if [ "$NEW_SHA256" = "$CURRENT_SHA256" ]; then
         write_status "unchanged"
         printf '%s\n' "Already up to date."
