@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-09-28T09:25:39.245646Z",
-  "domains": 1997,
-  "includes": 82,
-  "duplicates_removed": 22,
+  "generated_at": "2026-10-12T10:19:42.863479Z",
+  "domains": 2065,
+  "includes": 80,
+  "duplicates_removed": 15,
   "invalid_removed": 5,
   "manual_domains": 0,
   "smart_home_domains": 60
