@@ -969,6 +969,7 @@ medsi.com
 medsi.pro
 medsi.ru
 medtochka.ru
+megabitus.com
 megafon.com
 megafon.ru
 megafonpro.ru
@@ -1838,6 +1839,7 @@ velberis.ru
 venets-bank.ru
 vezet.ru
 vfbank.ru
+vigo.tech
 viju.ru
 vildberis.ru
 vimu.tv
@@ -2184,6 +2186,7 @@ yaroslavl.ru
 yastat.net
 yastatic-net.ru
 yastatic.net
+yb-payment.ru
 yccdn.ru
 yclients.com
 ydb.tech
